@@ -6,6 +6,7 @@
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export type Precision =
   | "auto"
@@ -22,15 +23,9 @@ export class WriteService {
   }
 
   /**
-   * Write data using line protocol format
-   * POST /api/v3/write_lp
-   *
-   * Line protocol format:
-   * measurement,tag1=value1,tag2=value2 field1=value1,field2=value2 timestamp
-   *
-   * Multiple data points can be written by separating them with newlines:
-   * measurement1,tag=value field=value1 timestamp1
-   * measurement2,tag=value field=value2 timestamp2
+   * Write data (single entrypoint for all product types)
+   * For core/enterprise: HTTP API
+   * For cloud-dedicated: influxdb3 client
    */
   async writeLineProtocol(
     lineProtocolData: string,
@@ -41,22 +36,45 @@ export class WriteService {
       noSync?: boolean;
     } = {},
   ): Promise<void> {
+    const connectionInfo = this.baseService.getConnectionInfo();
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.writeCloudDedicated(lineProtocolData, database, options);
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        return this.writeCoreEnterprise(lineProtocolData, database, options);
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  /**
+   * Write for core/enterprise (HTTP API)
+   */
+  private async writeCoreEnterprise(
+    lineProtocolData: string,
+    database: string,
+    options: {
+      precision?: Precision;
+      acceptPartial?: boolean;
+      noSync?: boolean;
+    },
+  ): Promise<void> {
     const {
       precision = "nanosecond",
       acceptPartial = true,
       noSync = false,
     } = options;
-
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
-
       const params = new URLSearchParams({
         db: database,
         precision,
         accept_partial: acceptPartial.toString(),
         no_sync: noSync.toString(),
       });
-
       await httpClient.post(
         `/api/v3/write_lp?${params.toString()}`,
         lineProtocolData,
@@ -68,26 +86,58 @@ export class WriteService {
         },
       );
     } catch (error: any) {
-      if (error.response?.status === 400) {
-        throw new Error(
-          `Bad request: Invalid line protocol format or parameters`,
-        );
-      } else if (error.response?.status === 401) {
-        throw new Error("Unauthorized: Check your InfluxDB token permissions");
-      } else if (error.response?.status === 403) {
-        throw new Error(
-          "Access denied: Insufficient permissions for database operations",
-        );
-      } else if (error.response?.status === 413) {
-        throw new Error(
-          "Request entity too large: Reduce the size of your line protocol data",
-        );
-      } else if (error.response?.status === 422) {
-        throw new Error("Unprocessable entity: Invalid line protocol syntax");
-      }
-      throw new Error(
-        `Failed to write data to database '${database}': ${error.response?.data}`,
-      );
+      this.handleWriteError(error, database);
     }
+  }
+
+  /**
+   * Write for cloud-dedicated (influxdb3 client)
+   */
+  private async writeCloudDedicated(
+    lineProtocolData: string,
+    database: string,
+    options: {
+      precision?: Precision;
+      acceptPartial?: boolean;
+      noSync?: boolean;
+    },
+  ): Promise<void> {
+    try {
+      const client = this.baseService.getClient();
+      if (!client) throw new Error("InfluxDB client not initialized");
+      const writeOptions: any = {};
+      if (options.precision) {
+        writeOptions.precision = options.precision;
+      }
+      await client.write(lineProtocolData, database, undefined, writeOptions);
+    } catch (error: any) {
+      this.handleWriteError(error, database);
+    }
+  }
+
+  /**
+   * Centralized error handler for write methods
+   */
+  private handleWriteError(error: any, database: string): never {
+    if (error.response?.status === 400) {
+      throw new Error(
+        `Bad request: Invalid line protocol format or parameters`,
+      );
+    } else if (error.response?.status === 401) {
+      throw new Error("Unauthorized: Check your InfluxDB token permissions");
+    } else if (error.response?.status === 403) {
+      throw new Error(
+        "Access denied: Insufficient permissions for database operations",
+      );
+    } else if (error.response?.status === 413) {
+      throw new Error(
+        "Request entity too large: Reduce the size of your line protocol data",
+      );
+    } else if (error.response?.status === 422) {
+      throw new Error("Unprocessable entity: Invalid line protocol syntax");
+    }
+    throw new Error(
+      `Failed to write data to database '${database}': ${error.response?.data || error.message}`,
+    );
   }
 }

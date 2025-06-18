@@ -5,6 +5,7 @@
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface QueryResult {
   results?: any[];
@@ -30,8 +31,9 @@ export class QueryService {
   }
 
   /**
-   * Execute SQL query
-   * POST /api/v3/query_sql
+   * Execute SQL query (single entrypoint for all product types)
+   * For core/enterprise: HTTP API
+   * For cloud-dedicated: influxdb3 client
    */
   async executeQuery(
     query: string,
@@ -40,7 +42,29 @@ export class QueryService {
       format?: "json" | "csv" | "parquet" | "jsonl" | "pretty";
     } = {},
   ): Promise<any> {
-    const { format = "json" } = options;
+    const format = options.format ?? "json";
+    const connectionInfo = this.baseService.getConnectionInfo();
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.executeCloudDedicatedQuery(query, database);
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        return this.executeCoreEnterpriseQuery(query, database, format);
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  /**
+   * Query for core/enterprise (HTTP API)
+   */
+  private async executeCoreEnterpriseQuery(
+    query: string,
+    database: string,
+    format: string,
+  ): Promise<any> {
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
       const payload = {
@@ -74,49 +98,94 @@ export class QueryService {
       });
       return response;
     } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.error ||
-        error.response?.statusText ||
-        error.message;
-      const statusCode = error.response?.status;
-      console.error(`Status: ${statusCode} \n Message: ${errorMessage}`);
-      switch (statusCode) {
-        case 400:
-          throw new Error(`Bad request: ${errorMessage}`);
-        case 401:
-          throw new Error(`Unauthorized: ${errorMessage}`);
-        case 403:
-          throw new Error(`Access denied: ${errorMessage}`);
-        case 404:
-          throw new Error(`Database not found: ${errorMessage}`);
-        case 405:
-          throw new Error(`Method not allowed: ${errorMessage}`);
-        case 422:
-          throw new Error(`Unprocessable entity: ${errorMessage}`);
-        default:
-          throw new Error(`Query failed: ${errorMessage}`);
+      this.handleQueryError(error);
+    }
+  }
+
+  /**
+   * Query for cloud-dedicated (influxdb3 client)
+   */
+  private async executeCloudDedicatedQuery(
+    query: string,
+    database: string,
+  ): Promise<any> {
+    try {
+      const client = this.baseService.getClient();
+      if (!client) throw new Error("InfluxDB client not initialized");
+      const result = client.query(query, database);
+      const rows: any[] = [];
+      for await (const row of result) {
+        rows.push(row);
       }
+      console.error("Query result:", rows);
+      return rows;
+    } catch (error: any) {
+      this.handleQueryError(error);
+    }
+  }
+
+  /**
+   * Centralized error handler for query methods
+   */
+  private handleQueryError(error: any): never {
+    const errorMessage =
+      error.response?.data?.error ||
+      error.response?.statusText ||
+      error.message;
+    const statusCode = error.response?.status;
+    console.error(`Status: ${statusCode} \n Message: ${errorMessage}`);
+    switch (statusCode) {
+      case 400:
+        throw new Error(`Bad request: ${errorMessage}`);
+      case 401:
+        throw new Error(`Unauthorized: ${errorMessage}`);
+      case 403:
+        throw new Error(`Access denied: ${errorMessage}`);
+      case 404:
+        throw new Error(`Database not found: ${errorMessage}`);
+      case 405:
+        throw new Error(`Method not allowed: ${errorMessage}`);
+      case 422:
+        throw new Error(`Unprocessable entity: ${errorMessage}`);
+      default:
+        throw new Error(`Query failed: ${errorMessage}`);
     }
   }
 
   /**
    * Get all measurements/tables in a database
-   * Uses information_schema.columns to discover tables
+   * Uses SHOW TABLES for cloud-dedicated, information_schema for others
    */
   async getMeasurements(database: string): Promise<MeasurementInfo[]> {
+    const connectionInfo = this.baseService.getConnectionInfo();
+    let query: string;
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        query = "SHOW TABLES";
+        break;
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        query =
+          "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'iox'";
+        break;
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
     try {
-      const result = await this.executeQuery(
-        "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'iox'",
-        database,
-        { format: "json" },
-      );
-
+      const result = await this.executeQuery(query, database, {
+        format: "json",
+      });
       if (Array.isArray(result)) {
-        return result.map((row: any) => ({
-          name: row.table_name,
-        }));
+        if (connectionInfo.type === InfluxProductType.CloudDedicated) {
+          return result
+            .filter((row: any) => row.table_schema === "iox")
+            .map((row: any) => ({ name: row.table_name }));
+        } else {
+          return result.map((row: any) => ({ name: row.table_name }));
+        }
       }
-
       return result;
     } catch (error: any) {
       throw new Error(`Failed to get measurements: ${error.message}`);
@@ -125,46 +194,40 @@ export class QueryService {
 
   /**
    * Get schema information for a measurement/table
-   * Uses information_schema.columns query
+   * Uses SHOW COLUMNS for cloud-dedicated, information_schema for others
    */
   async getMeasurementSchema(
     measurement: string,
     database: string,
   ): Promise<SchemaInfo> {
+    const connectionInfo = this.baseService.getConnectionInfo();
+    let query: string;
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        query = `SHOW COLUMNS IN ${measurement}`;
+        break;
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        query = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${measurement}' AND table_schema = 'iox'`;
+        break;
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
     try {
-      const result = await this.executeQuery(
-        `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${measurement}' AND table_schema = 'iox'`,
-        database,
-        { format: "json" },
-      );
-
+      const result = await this.executeQuery(query, database, {
+        format: "json",
+      });
       if (Array.isArray(result)) {
-        const columns = result.map((row: any) => ({
-          name: row.column_name,
-          type: row.data_type,
-        }));
-
-        if (columns.length === 0) {
-          const tableExists = await this.executeQuery(
-            `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = '${measurement}' AND table_schema = 'iox'`,
-            database,
-            { format: "json" },
-          );
-
-          if (
-            Array.isArray(tableExists) &&
-            tableExists[0] &&
-            tableExists[0].count === 0
-          ) {
-            throw new Error(
-              `Table '${measurement}' does not exist in database '${database}'`,
-            );
-          }
-        }
-
+        const columns: { name: string; type: string }[] = result.map(
+          (row: any) => ({
+            name: row.column_name,
+            type: row.data_type,
+          }),
+        );
         return { columns };
       }
-
       return result;
     } catch (error: any) {
       if (error.message.includes("not found")) {

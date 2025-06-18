@@ -8,6 +8,7 @@
 import { InfluxDBClient } from "@influxdata/influxdb3-client";
 import { McpServerConfig, InfluxConfig } from "../config.js";
 import { HttpClientService } from "./http-client.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface ConnectionInfo {
   isConnected: boolean;
@@ -29,6 +30,28 @@ export class BaseConnectionService {
   }
 
   /**
+   * Get the correct host for query/write operations (data plane)
+   */
+  private getDataHost(): string | undefined {
+    const influx = this.config.influx;
+    if (influx.type === InfluxProductType.CloudDedicated && influx.cluster_id) {
+      return `https://${influx.cluster_id}.a.influxdb.io`;
+    }
+    return influx.url;
+  }
+
+  /**
+   * Get the correct host for management operations (control plane)
+   */
+  private getManagementHost(): string | undefined {
+    const influx = this.config.influx;
+    if (influx.type === InfluxProductType.CloudDedicated) {
+      return "https://console.influxdata.com";
+    }
+    return influx.url;
+  }
+
+  /**
    * Initialize InfluxDB client
    */
   private initializeClient(): void {
@@ -36,13 +59,14 @@ export class BaseConnectionService {
       const influxConfig = this.config.influx;
       if (this.isValidConfig(influxConfig)) {
         const clientConfig: any = {
-          host: influxConfig.url,
+          host: this.getDataHost(),
           token: influxConfig.token,
         };
         this.client = new InfluxDBClient(clientConfig);
       }
     } catch (error) {
-      // Only log for user-facing error
+      console.error("Failed to initialize InfluxDB client:", error);
+      this.client = null;
     }
   }
 
@@ -50,6 +74,9 @@ export class BaseConnectionService {
    * Check if configuration is valid
    */
   private isValidConfig(config: InfluxConfig): boolean {
+    if (config.type === InfluxProductType.CloudDedicated) {
+      return !!(config.cluster_id && config.token);
+    }
     return !!(config.url && config.token);
   }
 
@@ -67,7 +94,7 @@ export class BaseConnectionService {
     const influxConfig = this.config.influx;
     return {
       isConnected: !!this.client,
-      url: influxConfig.url,
+      url: this.getDataHost() || "",
       hasToken: !!influxConfig.token,
       type: influxConfig.type,
     };
@@ -83,9 +110,12 @@ export class BaseConnectionService {
     message?: string;
   }> {
     const influxType = this.config.influx.type;
-    const url = this.config.influx.url.replace(/\/$/, "");
+    const url = this.getDataHost();
+    if (!url) {
+      return { ok: false, message: "No data host configured" };
+    }
     try {
-      const response = await fetch(`${url}/ping`, {
+      const response = await fetch(`${url.replace(/\/$/, "")}/ping`, {
         headers: {
           Authorization: `Token ${this.config.influx.token}`,
         },
@@ -117,19 +147,16 @@ export class BaseConnectionService {
    * Get health status
    */
   async getHealthStatus(): Promise<{ status: string; checks?: any[] }> {
-    const connectionInfo = this.getConnectionInfo();
-    if (!connectionInfo.isConnected) {
+    const url = this.getDataHost();
+    if (!url || !this.client) {
       return { status: "fail" };
     }
     try {
-      const response = await fetch(
-        `${connectionInfo.url.replace(/\/$/, "")}/health`,
-        {
-          headers: {
-            Authorization: `Token ${this.config.influx.token}`,
-          },
+      const response = await fetch(`${url.replace(/\/$/, "")}/health`, {
+        headers: {
+          Authorization: `Token ${this.config.influx.token}`,
         },
-      );
+      });
       if (response.ok) {
         try {
           const healthData = await response.json();
@@ -147,12 +174,21 @@ export class BaseConnectionService {
 
   /**
    * Get pre-configured HTTP client for InfluxDB API calls
+   * For cloud-dedicated, use data host for query/write, management host for admin
    */
-  getInfluxHttpClient(): HttpClientService {
+  getInfluxHttpClient(forManagement = false): HttpClientService {
     const influxConfig = this.config.influx;
-    return HttpClientService.createInfluxClient(
-      influxConfig.url,
-      influxConfig.token,
-    );
+    const host =
+      (forManagement ? this.getManagementHost() : this.getDataHost()) || "";
+    let token: string = "";
+    if (
+      influxConfig.type === InfluxProductType.CloudDedicated &&
+      influxConfig.account_id
+    ) {
+      token = influxConfig.management_token || "";
+    } else {
+      token = influxConfig.token || "";
+    }
+    return HttpClientService.createInfluxClient(host, token);
   }
 }
