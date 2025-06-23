@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced HTTP client with better error handling for management API calls
 - Improved type safety and error messages throughout the codebase
 - Better separation of data plane and control plane operations
+- Refactored MCP tools into modular category-based files for improved maintainability and organization
 
 ## [1.0.0] - 2025-06-13
 

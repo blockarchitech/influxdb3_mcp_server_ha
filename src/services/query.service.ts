@@ -20,6 +20,7 @@ export interface SchemaInfo {
   columns: Array<{
     name: string;
     type: string;
+    category: "time" | "tag" | "field";
   }>;
 }
 
@@ -119,24 +120,7 @@ export class QueryService {
       for await (const row of result) {
         rows.push(row);
       }
-      console.error("Query result:", rows);
       return rows;
-      // const httpClient = this.baseService.getInfluxHttpClient();
-      // const payload = {
-      //   db: database,
-      //   q: query,
-      // };
-      // const acceptHeader = "application/json";
-      // console.error(payload)
-      // const response = await httpClient.post("/query", payload, {
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     Accept: acceptHeader,
-      //   },
-      // });
-      // console.error("Response from cloud-dedicated query:");
-      // console.error("result", response)
-      // return response;
     } catch (error: any) {
       this.handleQueryError(error);
     }
@@ -172,39 +156,72 @@ export class QueryService {
 
   /**
    * Get all measurements/tables in a database
-   * Uses SHOW TABLES for cloud-dedicated, information_schema for others
+   * Uses SHOW MEASUREMENTS for cloud-dedicated (HTTP), information_schema for others
    */
   async getMeasurements(database: string): Promise<MeasurementInfo[]> {
     this.baseService.validateDataCapabilities();
 
     const connectionInfo = this.baseService.getConnectionInfo();
-    let query: string;
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
-        query = "SHOW TABLES";
-        break;
+        return this.getMeasurementsCloudDedicated(database);
       case InfluxProductType.Core:
       case InfluxProductType.Enterprise:
-        query =
-          "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'iox'";
-        break;
+        return this.getMeasurementsCoreEnterprise(database);
       default:
         throw new Error(
           `Unsupported InfluxDB product type: ${connectionInfo.type}`,
         );
     }
+  }
+
+  /**
+   * Get measurements for cloud-dedicated (HTTP client with InfluxQL)
+   */
+  private async getMeasurementsCloudDedicated(
+    database: string,
+  ): Promise<MeasurementInfo[]> {
     try {
+      const httpClient = this.baseService.getInfluxHttpClient();
+      const response = await httpClient.get("/query", {
+        params: {
+          db: database,
+          q: "SHOW MEASUREMENTS",
+        },
+      });
+
+      if (
+        response.results &&
+        response.results[0] &&
+        response.results[0].series
+      ) {
+        const series = response.results[0].series[0];
+        if (series.name === "measurements" && series.values) {
+          return series.values.map((value: any[]) => ({ name: value[0] }));
+        }
+      }
+
+      return [];
+    } catch (error: any) {
+      throw new Error(`Failed to get measurements: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get measurements for core/enterprise
+   */
+  private async getMeasurementsCoreEnterprise(
+    database: string,
+  ): Promise<MeasurementInfo[]> {
+    try {
+      const query =
+        "SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema = 'iox'";
       const result = await this.executeQuery(query, database, {
         format: "json",
       });
+
       if (Array.isArray(result)) {
-        if (connectionInfo.type === InfluxProductType.CloudDedicated) {
-          return result
-            .filter((row: any) => row.table_schema === "iox")
-            .map((row: any) => ({ name: row.table_name }));
-        } else {
-          return result.map((row: any) => ({ name: row.table_name }));
-        }
+        return result.map((row: any) => ({ name: row.table_name }));
       }
       return result;
     } catch (error: any) {
@@ -214,7 +231,7 @@ export class QueryService {
 
   /**
    * Get schema information for a measurement/table
-   * Uses SHOW COLUMNS for cloud-dedicated, information_schema for others
+   * Uses SHOW FIELD KEYS + SHOW TAG KEYS for cloud-dedicated (HTTP), information_schema for others
    */
   async getMeasurementSchema(
     measurement: string,
@@ -223,31 +240,133 @@ export class QueryService {
     this.baseService.validateDataCapabilities();
 
     const connectionInfo = this.baseService.getConnectionInfo();
-    let query: string;
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
-        query = `SHOW COLUMNS IN ${measurement}`;
-        break;
+        return this.getMeasurementSchemaCloudDedicated(measurement, database);
       case InfluxProductType.Core:
       case InfluxProductType.Enterprise:
-        query = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${measurement}' AND table_schema = 'iox'`;
-        break;
+        return this.getMeasurementSchemaCoreEnterprise(measurement, database);
       default:
         throw new Error(
           `Unsupported InfluxDB product type: ${connectionInfo.type}`,
         );
     }
+  }
+
+  /**
+   * Get measurement schema for cloud-dedicated (HTTP client with InfluxQL)
+   */
+  private async getMeasurementSchemaCloudDedicated(
+    measurement: string,
+    database: string,
+  ): Promise<SchemaInfo> {
     try {
+      const httpClient = this.baseService.getInfluxHttpClient();
+
+      const fieldKeysResponse = await httpClient.get("/query", {
+        params: {
+          db: database,
+          q: `SHOW FIELD KEYS FROM ${measurement}`,
+        },
+      });
+
+      const tagKeysResponse = await httpClient.get("/query", {
+        params: {
+          db: database,
+          q: `SHOW TAG KEYS FROM ${measurement}`,
+        },
+      });
+      const columns: {
+        name: string;
+        type: string;
+        category: "time" | "tag" | "field";
+      }[] = [];
+
+      if (
+        fieldKeysResponse.results &&
+        fieldKeysResponse.results[0] &&
+        fieldKeysResponse.results[0].series
+      ) {
+        const fieldSeries = fieldKeysResponse.results[0].series[0];
+        if (fieldSeries && fieldSeries.values) {
+          fieldSeries.values.forEach((value: any[]) => {
+            columns.push({
+              name: value[0],
+              type: value[1],
+              category: "field",
+            });
+          });
+        }
+      }
+
+      if (
+        tagKeysResponse.results &&
+        tagKeysResponse.results[0] &&
+        tagKeysResponse.results[0].series
+      ) {
+        const tagSeries = tagKeysResponse.results[0].series[0];
+        if (tagSeries && tagSeries.values) {
+          tagSeries.values.forEach((value: any[]) => {
+            columns.push({
+              name: value[0],
+              type: "string",
+              category: "tag",
+            });
+          });
+        }
+      }
+
+      columns.unshift({
+        name: "time",
+        type: "timestamp",
+        category: "time",
+      });
+
+      return { columns };
+    } catch (error: any) {
+      if (
+        error.response?.status === 404 ||
+        error.message.includes("not found")
+      ) {
+        throw new Error(
+          `Measurement '${measurement}' does not exist in database '${database}'`,
+        );
+      }
+      throw new Error(
+        `Failed to get schema for measurement '${measurement}': ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Get measurement schema for core/enterprise
+   */
+  private async getMeasurementSchemaCoreEnterprise(
+    measurement: string,
+    database: string,
+  ): Promise<SchemaInfo> {
+    try {
+      const query = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${measurement}' AND table_schema = 'iox'`;
       const result = await this.executeQuery(query, database, {
         format: "json",
       });
+
       if (Array.isArray(result)) {
-        const columns: { name: string; type: string }[] = result.map(
-          (row: any) => ({
+        const columns = result.map((row: any) => {
+          let category: "time" | "tag" | "field" = "field";
+
+          if (row.column_name === "time") {
+            category = "time";
+          } else if (row.data_type === "string" || row.data_type === "text") {
+            category = "tag";
+          }
+
+          return {
             name: row.column_name,
             type: row.data_type,
-          }),
-        );
+            category,
+          };
+        });
         return { columns };
       }
       return result;

@@ -136,7 +136,7 @@ export class TokenManagementService {
       return response;
     } catch (error: any) {
       const errorMessage = error.response?.data;
-      const statusCode = error.response?.status;
+      const _statusCode = error.response?.status;
       throw new Error(
         `Failed to list admin tokens: ${errorMessage || error.message}`,
       );

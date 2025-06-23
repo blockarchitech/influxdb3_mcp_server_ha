@@ -232,7 +232,7 @@ export class BaseConnectionService {
     build?: string;
     message?: string;
   }> {
-    const influxType = this.config.influx.type;
+    const _influxType = this.config.influx.type;
     const url = this.getDataHost();
     if (!url) {
       return { ok: false, message: "No data host configured" };
@@ -290,7 +290,7 @@ export class BaseConnectionService {
       } else {
         return { status: "fail" };
       }
-    } catch (error) {
+    } catch (_error) {
       return { status: "fail" };
     }
   }

@@ -81,13 +81,8 @@ export class HttpClientService {
       const response = await this.axiosInstance.delete(url, deleteConfig);
       return response.data;
     } catch (error: any) {
-      if (error.code === "ECONNABORTED" || error.message?.includes("aborted")) {
-        if (error.response?.status >= 200 && error.response?.status < 300) {
-          return error.response.data;
-        }
-        if (error.response?.status === 204) {
-          return {} as T;
-        }
+      if (error.message?.includes("aborted")) {
+        return {} as T;
       }
       throw error;
     }

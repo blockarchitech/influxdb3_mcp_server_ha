@@ -154,7 +154,7 @@ export class CloudTokenManagementService {
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens/${tokenId}`;
 
-      await httpClient.delete(endpoint, { timeout: 6500 });
+      await httpClient.delete(endpoint);
       return true;
     } catch (error: any) {
       this.handleTokenError(error, `delete token '${tokenId}'`);
