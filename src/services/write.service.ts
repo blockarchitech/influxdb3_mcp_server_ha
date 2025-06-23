@@ -36,6 +36,9 @@ export class WriteService {
       noSync?: boolean;
     } = {},
   ): Promise<void> {
+    // Validate we have data capabilities for write operations
+    this.baseService.validateDataCapabilities();
+
     const connectionInfo = this.baseService.getConnectionInfo();
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:

@@ -11,7 +11,7 @@ import { HttpClientService } from "./http-client.service.js";
 import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface ConnectionInfo {
-  isConnected: boolean;
+  isDataClientInitialized: boolean;
   url: string;
   hasToken: boolean;
   database?: string;
@@ -78,6 +78,14 @@ export class BaseConnectionService {
     }
     return !!(config.url && config.token);
   }
+
+  /**
+   * Check if we have data capabilities (query/write operations)
+   */
+  hasDataCapabilities(): boolean {
+    return this.isValidConfig(this.config.influx);
+  }
+
   /**
    * Check if we have management capabilities
    */
@@ -90,16 +98,109 @@ export class BaseConnectionService {
         config.management_token
       );
     }
-    // For core/enterprise, we have the token but actual permissions depend on token type
-    // (operator/admin tokens have management access, resource tokens may not)
     return !!(config.url && config.token);
   }
 
   /**
-   * Check if we have data (query/write) capabilities
+   * Validate that we can perform data operations (query/write)
+   * Throws an error if we don't have the necessary configuration
    */
-  hasDataCapabilities(): boolean {
-    return this.isValidConfig(this.config.influx);
+  validateDataCapabilities(): void {
+    if (!this.hasDataCapabilities()) {
+      const config = this.config.influx;
+      if (config.type === InfluxProductType.CloudDedicated) {
+        if (!config.cluster_id) {
+          throw new Error(
+            "Cloud Dedicated data operations require cluster_id in configuration",
+          );
+        }
+        if (!config.token) {
+          throw new Error(
+            "Cloud Dedicated data operations require database token in configuration",
+          );
+        }
+      } else {
+        if (!config.url) {
+          throw new Error(
+            "Core/Enterprise data operations require url in configuration",
+          );
+        }
+        if (!config.token) {
+          throw new Error(
+            "Core/Enterprise data operations require token in configuration",
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate that we can perform management operations
+   * Throws an error if we don't have the necessary configuration
+   */
+  validateManagementCapabilities(): void {
+    if (!this.hasManagementCapabilities()) {
+      const config = this.config.influx;
+      if (config.type === InfluxProductType.CloudDedicated) {
+        const missing = [];
+        if (!config.cluster_id) missing.push("cluster_id");
+        if (!config.account_id) missing.push("account_id");
+        if (!config.management_token) missing.push("management_token");
+        throw new Error(
+          `Cloud Dedicated management operations require: ${missing.join(", ")}`,
+        );
+      } else {
+        if (!config.url) {
+          throw new Error(
+            "Core/Enterprise management operations require url in configuration",
+          );
+        }
+        if (!config.token) {
+          throw new Error(
+            "Core/Enterprise management operations require token with management permissions",
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate operation is supported for current product type
+   */
+  validateOperationSupport(
+    operation: string,
+    supportedTypes: InfluxProductType[],
+  ): void {
+    const currentType = this.config.influx.type as InfluxProductType;
+    if (!supportedTypes.includes(currentType)) {
+      const supportedNames = supportedTypes
+        .map((type) => {
+          switch (type) {
+            case InfluxProductType.Core:
+              return "Core";
+            case InfluxProductType.Enterprise:
+              return "Enterprise";
+            case InfluxProductType.CloudDedicated:
+              return "Cloud Dedicated";
+            default:
+              return type;
+          }
+        })
+        .join(", ");
+
+      const currentName =
+        currentType === InfluxProductType.Core
+          ? "Core"
+          : currentType === InfluxProductType.Enterprise
+            ? "Enterprise"
+            : currentType === InfluxProductType.CloudDedicated
+              ? "Cloud Dedicated"
+              : currentType;
+
+      throw new Error(
+        `Operation '${operation}' is not supported for ${currentName}. Supported types: ${supportedNames}`,
+      );
+    }
   }
 
   /**
@@ -115,7 +216,7 @@ export class BaseConnectionService {
   getConnectionInfo(): ConnectionInfo {
     const influxConfig = this.config.influx;
     return {
-      isConnected: !!this.client,
+      isDataClientInitialized: !!this.client,
       url: this.getDataHost() || "",
       hasToken: !!influxConfig.token,
       type: influxConfig.type,
@@ -197,7 +298,8 @@ export class BaseConnectionService {
   /**
    * Get pre-configured HTTP client for InfluxDB API calls
    * For cloud-dedicated, use data host for query/write, management host for admin
-   */ getInfluxHttpClient(forManagement = false): HttpClientService {
+   */
+  getInfluxHttpClient(forManagement = false): HttpClientService {
     const influxConfig = this.config.influx;
     const host =
       (forManagement ? this.getManagementHost() : this.getDataHost()) || "";

@@ -7,7 +7,7 @@
 
 export class HelpService {
   /**
-   * Get all InfluxDB help content as a single comprehensive text block
+   * Get InfluxDB help content
    */
   getHelp(): string {
     return INFLUXDB_HELP_CONTENT;
@@ -50,7 +50,7 @@ Time Filtering:
 - WHERE time BETWEEN '2024-01-01' AND '2024-01-02'
 
 Common Queries:
-- List measurements: SELECT DISTINCT table_name FROM system.tables
+- List measurements: SELECT DISTINCT table_name FROM information_schema.measurements
 - Get schema: DESCRIBE measurement_name
 - Recent data: SELECT * FROM measurement ORDER BY time DESC LIMIT 10
 - Aggregates: SELECT AVG(field1), MAX(field2) FROM measurement WHERE time >= now() - interval '1 day'
@@ -152,9 +152,15 @@ Best Practices:
 === DATABASE MANAGEMENT ===
 
 Database Operations:
-- Create: Use create_database tool (provide database name)
+- Create: Use create_database tool (provide database name, optional Cloud Dedicated parameters)
+- Update: Use update_database tool (Cloud Dedicated only - modify maxTables, maxColumnsPerTable, retentionPeriod)
 - List: Use list_databases tool (no parameters - shows all databases)
 - Delete: Use delete_database tool (provide exact database name - PERMANENT, no recovery)
+
+Cloud Dedicated Parameters (create_database and update_database):
+- maxTables: Maximum number of tables (default: 500)
+- maxColumnsPerTable: Maximum columns per table (default: 200)
+- retentionPeriod: Retention period in nanoseconds (default: 0 = no expiration)
 
 Naming Rules:
 - Alphanumeric characters, dashes (-), underscores (_), forward slashes (/)
@@ -179,10 +185,16 @@ No filtering or querying parameters are supported - it shows the complete list.
 === TROUBLESHOOTING ===
 
 Connection Issues:
-1. Check influx-status resource for server health
+1. Use health_check tool for comprehensive instance status (flexible assessment based on available endpoints)
 2. Verify INFLUX_URL environment variable
 3. Confirm INFLUX_TOKEN has proper permissions
 4. Test network connectivity to InfluxDB server
+
+Health Check Notes:
+- Different InfluxDB product types support different endpoints
+- Cloud Dedicated does not have /health endpoint available
+- Different tokens may have not access to certain endpoints
+- If ANY check passes (connection, /health, /ping), instance is considered operational
 
 Authentication Errors:
 - Token expired or invalid

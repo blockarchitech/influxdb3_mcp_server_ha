@@ -6,6 +6,7 @@
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface CloudTokenPermission {
   action: "read" | "write";
@@ -44,8 +45,13 @@ export class CloudTokenManagementService {
    * GET /api/v0/accounts/{accountId}/clusters/{clusterId}/tokens
    */
   async listTokens(): Promise<CloudTokenInfo[]> {
+    this.baseService.validateOperationSupport("list_cloud_tokens", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens`;
@@ -62,8 +68,13 @@ export class CloudTokenManagementService {
    * GET /api/v0/accounts/{accountId}/clusters/{clusterId}/tokens/{tokenId}
    */
   async getToken(tokenId: string): Promise<CloudTokenInfo> {
+    this.baseService.validateOperationSupport("get_cloud_token", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens/${tokenId}`;
@@ -80,8 +91,13 @@ export class CloudTokenManagementService {
    * POST /api/v0/accounts/{accountId}/clusters/{clusterId}/tokens
    */
   async createToken(request: CreateCloudTokenRequest): Promise<CloudTokenInfo> {
+    this.baseService.validateOperationSupport("create_cloud_token", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens`;
@@ -101,8 +117,13 @@ export class CloudTokenManagementService {
     tokenId: string,
     request: UpdateCloudTokenRequest,
   ): Promise<CloudTokenInfo> {
+    this.baseService.validateOperationSupport("update_cloud_token", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens/${tokenId}`;
@@ -122,8 +143,13 @@ export class CloudTokenManagementService {
    * DELETE /api/v0/accounts/{accountId}/clusters/{clusterId}/tokens/{tokenId}
    */
   async deleteToken(tokenId: string): Promise<boolean> {
+    this.baseService.validateOperationSupport("delete_cloud_token", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/tokens/${tokenId}`;
@@ -133,7 +159,9 @@ export class CloudTokenManagementService {
     } catch (error: any) {
       this.handleTokenError(error, `delete token '${tokenId}'`);
     }
-  } /**
+  }
+
+  /**
    * Helper method to create permissions for specific databases and actions
    */
   createPermissions(

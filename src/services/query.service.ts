@@ -42,6 +42,8 @@ export class QueryService {
       format?: "json" | "csv" | "parquet" | "jsonl" | "pretty";
     } = {},
   ): Promise<any> {
+    this.baseService.validateDataCapabilities();
+
     const format = options.format ?? "json";
     const connectionInfo = this.baseService.getConnectionInfo();
     switch (connectionInfo.type) {
@@ -173,11 +175,13 @@ export class QueryService {
    * Uses SHOW TABLES for cloud-dedicated, information_schema for others
    */
   async getMeasurements(database: string): Promise<MeasurementInfo[]> {
+    this.baseService.validateDataCapabilities();
+
     const connectionInfo = this.baseService.getConnectionInfo();
     let query: string;
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
-        query = "SELECT * FROM measurement";
+        query = "SHOW TABLES";
         break;
       case InfluxProductType.Core:
       case InfluxProductType.Enterprise:
@@ -216,6 +220,8 @@ export class QueryService {
     measurement: string,
     database: string,
   ): Promise<SchemaInfo> {
+    this.baseService.validateDataCapabilities();
+
     const connectionInfo = this.baseService.getConnectionInfo();
     let query: string;
     switch (connectionInfo.type) {

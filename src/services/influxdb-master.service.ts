@@ -115,8 +115,6 @@ export class InfluxDBMasterService {
     return this.helpService;
   }
 
-  // ===== Direct Client Access (for advanced operations) =====
-
   /**
    * Get the main client instance (for advanced operations)
    */

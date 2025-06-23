@@ -56,7 +56,7 @@ export function createTools(influxService: InfluxDBMasterService): McpTool[] {
 
     {
       name: "write_line_protocol",
-      description: `Write data to InfluxDB using line protocol format. Supports single records or batches.
+      description: `Write data to InfluxDB using line protocol format (all versions). Supports single records or batches.
 
 Line Protocol Syntax:
 measurement,tag1=value1,tag2=value2 field1=value1,field2=value2 timestamp
@@ -165,7 +165,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "create_database",
       description:
-        "Create a new database in InfluxDB. Database names must follow InfluxDB naming rules: alphanumeric characters, dashes (-), underscores (_), and forward slashes (/) are allowed. Must start with a letter or number. Maximum 64 characters.",
+        "Create a new database in InfluxDB. Database names must follow InfluxDB naming rules: alphanumeric characters, dashes (-), underscores (_), and forward slashes (/) are allowed. Must start with a letter or number. Maximum 64 characters. For Cloud Dedicated, optional configuration parameters can be specified.",
       inputSchema: {
         type: "object",
         properties: {
@@ -175,6 +175,24 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
               "Name of the database to create (alphanumeric, -, _, / allowed; max 64 chars; must start with letter/number)",
             pattern: "^[a-zA-Z0-9][a-zA-Z0-9\\-_/]*$",
             maxLength: 64,
+          },
+          maxTables: {
+            type: "number",
+            description:
+              "Maximum number of tables (Cloud Dedicated only, default: 500)",
+            minimum: 1,
+          },
+          maxColumnsPerTable: {
+            type: "number",
+            description:
+              "Maximum columns per table (Cloud Dedicated only, default: 200)",
+            minimum: 1,
+          },
+          retentionPeriod: {
+            type: "number",
+            description:
+              "Retention period in nanoseconds (Cloud Dedicated only, default: 0 = no expiration)",
+            minimum: 0,
           },
         },
         required: ["name"],
@@ -194,16 +212,140 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
             "Database name can only contain alphanumeric characters, dashes (-), underscores (_), and forward slashes (/)",
           )
           .describe("Name of the database to create"),
+        maxTables: z
+          .number()
+          .min(1)
+          .optional()
+          .describe("Maximum number of tables (Cloud Dedicated only)"),
+        maxColumnsPerTable: z
+          .number()
+          .min(1)
+          .optional()
+          .describe("Maximum columns per table (Cloud Dedicated only)"),
+        retentionPeriod: z
+          .number()
+          .min(0)
+          .optional()
+          .describe("Retention period in nanoseconds (Cloud Dedicated only)"),
       }),
       handler: async (args) => {
         try {
-          await influxService.database.createDatabase(args.name);
+          const config =
+            args.maxTables !== undefined ||
+            args.maxColumnsPerTable !== undefined ||
+            args.retentionPeriod !== undefined
+              ? {
+                  name: args.name,
+                  ...(args.maxTables !== undefined && {
+                    maxTables: args.maxTables,
+                  }),
+                  ...(args.maxColumnsPerTable !== undefined && {
+                    maxColumnsPerTable: args.maxColumnsPerTable,
+                  }),
+                  ...(args.retentionPeriod !== undefined && {
+                    retentionPeriod: args.retentionPeriod,
+                  }),
+                }
+              : undefined;
+
+          await influxService.database.createDatabase(args.name, config);
 
           return {
             content: [
               {
                 type: "text",
                 text: `Database '${args.name}' created successfully`,
+              },
+            ],
+          };
+        } catch (error: any) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: ${error.message}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      },
+    },
+
+    {
+      name: "update_database",
+      description:
+        "Update database configuration for InfluxDB Cloud Dedicated clusters only. Allows modification of maxTables, maxColumnsPerTable, and retentionPeriod settings. Not available for Core/Enterprise installations.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Name of the database to update",
+          },
+          maxTables: {
+            type: "number",
+            description: "Maximum number of tables (optional)",
+            minimum: 1,
+          },
+          maxColumnsPerTable: {
+            type: "number",
+            description: "Maximum columns per table (optional)",
+            minimum: 1,
+          },
+          retentionPeriod: {
+            type: "number",
+            description: "Retention period in nanoseconds (optional)",
+            minimum: 0,
+          },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      },
+      zodSchema: z.object({
+        name: z.string().describe("Name of the database to update"),
+        maxTables: z
+          .number()
+          .min(1)
+          .optional()
+          .describe("Maximum number of tables"),
+        maxColumnsPerTable: z
+          .number()
+          .min(1)
+          .optional()
+          .describe("Maximum columns per table"),
+        retentionPeriod: z
+          .number()
+          .min(0)
+          .optional()
+          .describe("Retention period in nanoseconds"),
+      }),
+      handler: async (args) => {
+        try {
+          const config: any = {};
+          if (args.maxTables !== undefined) config.maxTables = args.maxTables;
+          if (args.maxColumnsPerTable !== undefined)
+            config.maxColumnsPerTable = args.maxColumnsPerTable;
+          if (args.retentionPeriod !== undefined)
+            config.retentionPeriod = args.retentionPeriod;
+
+          if (Object.keys(config).length === 0) {
+            throw new Error(
+              "At least one configuration parameter must be provided",
+            );
+          }
+
+          await influxService.database.updateDatabase(args.name, config);
+
+          const updatedFields = Object.keys(config)
+            .map((key) => `${key}: ${config[key]}`)
+            .join(", ");
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Database '${args.name}' updated successfully with: ${updatedFields}`,
               },
             ],
           };
@@ -269,7 +411,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "execute_query",
       description:
-        "Execute a SQL query against an InfluxDB database. Returns results in the specified format (defaults to JSON).",
+        "Execute a SQL query against an InfluxDB database (all versions). Returns results in the specified format (defaults to JSON).",
       inputSchema: {
         type: "object",
         properties: {
@@ -339,7 +481,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "get_measurements",
       description:
-        "Get a list of all measurements (tables) in a database. Uses the InfluxDB information_schema.columns to discover tables.",
+        "Get a list of all measurements (tables) in a database (all versions). Uses the InfluxDB information_schema.columns to discover tables.",
       inputSchema: {
         type: "object",
         properties: {
@@ -390,7 +532,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "get_measurement_schema",
       description:
-        "Get the schema (column information) for a specific measurement/table. Uses the InfluxDB information_schema.columns to retrieve column names and types.",
+        "Get the schema (column information) for a specific measurement/table (all versions). Uses the InfluxDB information_schema.columns to retrieve column names and types.",
       inputSchema: {
         type: "object",
         properties: {
@@ -451,7 +593,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "create_admin_token",
       description:
-        "Create a new InfluxDB named admin token with full administrative permissions. Named admin tokens can manage databases, users, and resource tokens, but cannot manage other admin tokens.",
+        "Create a new InfluxDB named admin token with full administrative permissions (Core/Enterprise only). Named admin tokens can manage databases, users, and resource tokens, but cannot manage other admin tokens.",
       inputSchema: {
         type: "object",
         properties: {
@@ -498,7 +640,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "list_admin_tokens",
       description:
-        "List all admin tokens (operator and named admin tokens) with optional filtering by token name. Named admin tokens have full administrative access including resource token management.",
+        "List all admin tokens (operator and named admin tokens) with optional filtering by token name (Core/Enterprise only). Named admin tokens have full administrative access including resource token management.",
       inputSchema: {
         type: "object",
         properties: {
@@ -563,7 +705,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "list_resource_tokens",
       description:
-        "List all resource tokens with optional filtering by database name and/or token name, and ordering.",
+        "List all resource tokens with optional filtering by database name and/or token name, and ordering (Core/Enterprise only).",
       inputSchema: {
         type: "object",
         properties: {
@@ -662,7 +804,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "regenerate_operator_token",
       description:
-        "Regenerate the InfluxDB operator token. Returns the new token value. ⚠️ This action invalidates current operator token and is irreversible. Receive the explicit user confirmation before proceeding.",
+        "Regenerate the InfluxDB operator token (Core/Enterprise only). Returns the new token value. ⚠️ This action invalidates current operator token and is irreversible. Receive the explicit user confirmation before proceeding.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -698,7 +840,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "create_resource_token",
       description:
-        'Create a new InfluxDB resource token with specific database permissions. Example: databases=["mydb", "testdb"], actions=["read", "write"]',
+        'Create a new InfluxDB resource token with specific database permissions (Core/Enterprise only). Example: databases=["mydb", "testdb"], actions=["read", "write"]',
       inputSchema: {
         type: "object",
         properties: {
@@ -813,7 +955,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
 
     {
       name: "delete_token",
-      description: "Delete an InfluxDB token by name.",
+      description: "Delete an InfluxDB token by name (Core/Enterprise only).",
       inputSchema: {
         type: "object",
         properties: {
@@ -1232,7 +1374,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "list_databases",
       description:
-        "List all databases in the InfluxDB instance. Returns database names, count, and status information.",
+        "List all databases in the InfluxDB instance (all versions). Returns database names, count, and status information.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -1271,7 +1413,7 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
     {
       name: "health_check",
       description:
-        "Check current connection status to the InfluxDB instance. Returns connection status, configuration, and /health and /ping results.",
+        "Check current connection status to the InfluxDB instance. Returns connection status, configuration, and available endpoint results. Health assessment is flexible - if any check passes (client initialization, /health endpoint, or /ping), the instance is considered healthy. Available checks depend on the InfluxDB product type and token configuration.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -1281,15 +1423,30 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
       handler: async () => {
         try {
           const connectionInfo = influxService.getConnectionInfo();
-          const healthStatus = await influxService.getHealthStatus();
           const influxType =
             influxService["baseConnection"]?.["config"]?.influx?.type ||
             "unknown";
-          const pingResult = await influxService.ping();
+
+          let healthStatus = null;
+          let pingResult = null;
+          let hasAnySuccess = false;
+
+          try {
+            healthStatus = await influxService.getHealthStatus();
+            if (healthStatus.status === "pass") hasAnySuccess = true;
+          } catch (error: any) {}
+
+          try {
+            pingResult = await influxService.ping();
+            if (pingResult.ok === true) hasAnySuccess = true;
+          } catch (error: any) {}
+
+          if (connectionInfo.isDataClientInitialized) hasAnySuccess = true;
+
           const healthInfo = {
             timestamp: new Date().toISOString(),
             connection: {
-              status: healthStatus.status === "pass" ? "healthy" : "failed",
+              status: hasAnySuccess ? "healthy" : "failed",
               url: connectionInfo.url,
               hasToken: connectionInfo.hasToken,
               database: connectionInfo.database,
@@ -1299,15 +1456,14 @@ Special characters in tags/fields must be escaped: spaces, commas, equals signs 
             ping: pingResult,
           };
 
-          const statusText =
-            healthStatus.status === "pass" ? "✅ HEALTHY" : "❌ FAILED";
+          const statusText = hasAnySuccess ? "✅ HEALTHY" : "❌ FAILED";
           const detailsText = JSON.stringify(healthInfo, null, 2);
 
           return {
             content: [
               {
                 type: "text",
-                text: `InfluxDB Health Check: ${statusText}\n\nConnection Details:\n${detailsText}`,
+                text: `InfluxDB Health Check: ${statusText}\n\nNote: Health assessment is based on available endpoints for your InfluxDB product type and token configuration. If any check passes, the instance is considered operational.\n\nConnection Details:\n${detailsText}`,
               },
             ],
           };

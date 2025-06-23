@@ -5,6 +5,58 @@ All notable changes to the official InfluxDB MCP Server will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-06-23
+
+### Added
+
+- **InfluxDB Cloud Dedicated Support**: Complete support for InfluxDB Cloud Dedicated clusters
+
+  - New `update_database` tool for Cloud Dedicated database configuration management
+  - Support for Cloud Dedicated specific parameters: `maxTables`, `maxColumnsPerTable`, `retentionPeriod`
+  - Enhanced `create_database` tool with optional Cloud Dedicated configuration parameters
+  - Dual token support: separate database tokens and management tokens for Cloud Dedicated
+  - New cloud token management tools: `cloud_list_database_tokens`, `cloud_get_database_token`, `cloud_create_database_token`, `cloud_update_database_token`, `cloud_delete_database_token`
+  - New configuration files: `env.cloud-dedicated.example` and `example-cloud-dedicated.mcp.json`
+
+- **Enhanced Validation System**: Comprehensive operation validation based on product type and configuration
+
+  - All operations now validate required capabilities before execution
+  - Product type-specific operation restrictions (e.g., token management only for Core/Enterprise)
+  - Configuration validation ensures proper credentials for each operation type
+  - Descriptive error messages for invalid operations and missing configuration
+
+- **Improved Documentation**:
+  - Updated README with Cloud Dedicated configuration examples
+  - New environment variable examples for all supported InfluxDB types
+  - Tool availability matrix showing Core/Enterprise vs Cloud Dedicated compatibility
+  - Enhanced help content with Cloud Dedicated specific guidance
+
+### Enhanced
+
+- **Database Management**:
+
+  - `create_database` tool now supports Cloud Dedicated configuration parameters
+  - `list_databases` returns Cloud Dedicated specific database metadata
+  - All database operations now properly validate management capabilities
+
+- **Connection Management**:
+
+  - Improved health checking with flexible endpoint assessment
+  - Better connection status reporting for different InfluxDB product types
+  - Enhanced error handling for Cloud Dedicated authentication scenarios
+
+- **Configuration Flexibility**:
+  - Support for multiple token types (database vs management)
+  - Intelligent host selection for data operations vs management operations
+  - Proper credential validation for each operation type
+
+### Technical Improvements
+
+- Refactored BaseConnectionService with comprehensive validation methods
+- Enhanced HTTP client with better error handling for management API calls
+- Improved type safety and error messages throughout the codebase
+- Better separation of data plane and control plane operations
+
 ## [1.0.0] - 2025-06-13
 
 ### Added

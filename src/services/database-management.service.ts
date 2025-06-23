@@ -1,7 +1,7 @@
 /**
  * InfluxDB Database Management Service
  *
- * Handles database lifecycle operations: list, create, delete
+ * Handles database lifecycle operations: list, create, delete, update
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
@@ -9,6 +9,16 @@ import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js
 
 export interface DatabaseInfo {
   name: string;
+  maxTables?: number;
+  maxColumnsPerTable?: number;
+  retentionPeriod?: number;
+}
+
+export interface CloudDedicatedDatabaseConfig {
+  name: string;
+  maxTables?: number;
+  maxColumnsPerTable?: number;
+  retentionPeriod?: number;
 }
 
 export class DatabaseManagementService {
@@ -24,11 +34,9 @@ export class DatabaseManagementService {
    * For cloud-dedicated: GET /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases
    */
   async listDatabases(): Promise<DatabaseInfo[]> {
-    const connectionInfo = this.baseService.getConnectionInfo();
-    if (!connectionInfo.isConnected) {
-      return [];
-    }
+    this.baseService.validateManagementCapabilities();
 
+    const connectionInfo = this.baseService.getConnectionInfo();
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
         return this.listDatabasesCloudDedicated();
@@ -47,16 +55,50 @@ export class DatabaseManagementService {
    * For core/enterprise: POST /api/v3/configure/database
    * For cloud-dedicated: POST /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases
    */
-  async createDatabase(name: string): Promise<boolean> {
+  async createDatabase(
+    name: string,
+    config?: CloudDedicatedDatabaseConfig,
+  ): Promise<boolean> {
     if (!name) throw new Error("Database name is required");
+    this.baseService.validateManagementCapabilities();
 
     const connectionInfo = this.baseService.getConnectionInfo();
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
-        return this.createDatabaseCloudDedicated(name);
+        return this.createDatabaseCloudDedicated(name, config);
       case InfluxProductType.Core:
       case InfluxProductType.Enterprise:
         return this.createDatabaseCoreEnterprise(name);
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  /**
+   * Update database configuration (only for cloud-dedicated)
+   * PATCH /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases/{name}
+   */
+  async updateDatabase(
+    name: string,
+    config: Partial<CloudDedicatedDatabaseConfig>,
+  ): Promise<boolean> {
+    if (!name) throw new Error("Database name is required");
+    this.baseService.validateOperationSupport("update_database", [
+      InfluxProductType.CloudDedicated,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
+    const connectionInfo = this.baseService.getConnectionInfo();
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.updateDatabaseCloudDedicated(name, config);
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        throw new Error(
+          "Database update is not supported for core/enterprise InfluxDB",
+        );
       default:
         throw new Error(
           `Unsupported InfluxDB product type: ${connectionInfo.type}`,
@@ -71,6 +113,7 @@ export class DatabaseManagementService {
    */
   async deleteDatabase(name: string): Promise<boolean> {
     if (!name) throw new Error("Database name is required");
+    this.baseService.validateManagementCapabilities();
 
     const connectionInfo = this.baseService.getConnectionInfo();
     switch (connectionInfo.type) {
@@ -85,8 +128,6 @@ export class DatabaseManagementService {
         );
     }
   }
-
-  // === Cloud Dedicated Methods ===
 
   /**
    * List databases for cloud-dedicated
@@ -126,7 +167,12 @@ export class DatabaseManagementService {
         if (typeof item === "string") {
           return { name: item };
         } else if (item && typeof item === "object" && item.name) {
-          return { name: item.name };
+          return {
+            name: item.name,
+            maxTables: item.maxTables,
+            maxColumnsPerTable: item.maxColumnsPerTable,
+            retentionPeriod: item.retentionPeriod,
+          };
         } else {
           return { name: String(item) };
         }
@@ -139,16 +185,78 @@ export class DatabaseManagementService {
   /**
    * Create database for cloud-dedicated
    */
-  private async createDatabaseCloudDedicated(name: string): Promise<boolean> {
+  private async createDatabaseCloudDedicated(
+    name: string,
+    config?: CloudDedicatedDatabaseConfig,
+  ): Promise<boolean> {
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
-      const config = this.baseService.getConfig();
+      const httpClient = this.baseService.getInfluxHttpClient(true);
+      const baseConfig = this.baseService.getConfig();
 
-      const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/databases`;
-      await httpClient.post(endpoint, { name });
+      const endpoint = `/api/v0/accounts/${baseConfig.influx.account_id}/clusters/${baseConfig.influx.cluster_id}/databases`;
+
+      const payload: any = { name };
+
+      if (config?.maxTables !== undefined) {
+        payload.maxTables = config.maxTables;
+      } else {
+        payload.maxTables = 500;
+      }
+
+      if (config?.maxColumnsPerTable !== undefined) {
+        payload.maxColumnsPerTable = config.maxColumnsPerTable;
+      } else {
+        payload.maxColumnsPerTable = 200;
+      }
+
+      if (config?.retentionPeriod !== undefined) {
+        payload.retentionPeriod = config.retentionPeriod;
+      } else {
+        payload.retentionPeriod = 0;
+      }
+
+      await httpClient.post(endpoint, payload);
       return true;
     } catch (error: any) {
       this.handleDatabaseError(error, `create database '${name}'`);
+    }
+  }
+
+  /**
+   * Update database configuration for cloud-dedicated
+   */
+  private async updateDatabaseCloudDedicated(
+    name: string,
+    config: Partial<CloudDedicatedDatabaseConfig>,
+  ): Promise<boolean> {
+    try {
+      const httpClient = this.baseService.getInfluxHttpClient(true);
+      const baseConfig = this.baseService.getConfig();
+
+      const endpoint = `/api/v0/accounts/${baseConfig.influx.account_id}/clusters/${baseConfig.influx.cluster_id}/databases/${encodeURIComponent(name)}`;
+
+      const payload: any = {};
+
+      if (config.maxTables !== undefined) {
+        payload.maxTables = config.maxTables;
+      }
+
+      if (config.maxColumnsPerTable !== undefined) {
+        payload.maxColumnsPerTable = config.maxColumnsPerTable;
+      }
+
+      if (config.retentionPeriod !== undefined) {
+        payload.retentionPeriod = config.retentionPeriod;
+      }
+
+      if (Object.keys(payload).length === 0) {
+        throw new Error("No configuration parameters provided for update");
+      }
+
+      await httpClient.patch(endpoint, payload);
+      return true;
+    } catch (error: any) {
+      this.handleDatabaseError(error, `update database '${name}'`);
     }
   }
 
@@ -157,7 +265,7 @@ export class DatabaseManagementService {
    */
   private async deleteDatabaseCloudDedicated(name: string): Promise<boolean> {
     try {
-      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const httpClient = this.baseService.getInfluxHttpClient(true);
       const config = this.baseService.getConfig();
 
       const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/databases/${encodeURIComponent(name)}`;
@@ -168,8 +276,6 @@ export class DatabaseManagementService {
       this.handleDatabaseError(error, `delete database '${name}'`);
     }
   }
-
-  // === Core/Enterprise Methods ===
 
   /**
    * List databases for core/enterprise
