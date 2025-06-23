@@ -112,13 +112,29 @@ export class QueryService {
     try {
       const client = this.baseService.getClient();
       if (!client) throw new Error("InfluxDB client not initialized");
-      const result = client.query(query, database);
+      const result = client.query(query, database, { type: "sql" });
       const rows: any[] = [];
       for await (const row of result) {
         rows.push(row);
       }
       console.error("Query result:", rows);
       return rows;
+      // const httpClient = this.baseService.getInfluxHttpClient();
+      // const payload = {
+      //   db: database,
+      //   q: query,
+      // };
+      // const acceptHeader = "application/json";
+      // console.error(payload)
+      // const response = await httpClient.post("/query", payload, {
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     Accept: acceptHeader,
+      //   },
+      // });
+      // console.error("Response from cloud-dedicated query:");
+      // console.error("result", response)
+      // return response;
     } catch (error: any) {
       this.handleQueryError(error);
     }
@@ -161,7 +177,7 @@ export class QueryService {
     let query: string;
     switch (connectionInfo.type) {
       case InfluxProductType.CloudDedicated:
-        query = "SHOW TABLES";
+        query = "SELECT * FROM measurement";
         break;
       case InfluxProductType.Core:
       case InfluxProductType.Enterprise:

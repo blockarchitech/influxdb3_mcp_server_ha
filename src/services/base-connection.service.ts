@@ -69,15 +69,37 @@ export class BaseConnectionService {
       this.client = null;
     }
   }
-
   /**
-   * Check if configuration is valid
+   * Check if configuration is valid for data operations (requires data client)
    */
   private isValidConfig(config: InfluxConfig): boolean {
     if (config.type === InfluxProductType.CloudDedicated) {
       return !!(config.cluster_id && config.token);
     }
     return !!(config.url && config.token);
+  }
+  /**
+   * Check if we have management capabilities
+   */
+  hasManagementCapabilities(): boolean {
+    const config = this.config.influx;
+    if (config.type === InfluxProductType.CloudDedicated) {
+      return !!(
+        config.cluster_id &&
+        config.account_id &&
+        config.management_token
+      );
+    }
+    // For core/enterprise, we have the token but actual permissions depend on token type
+    // (operator/admin tokens have management access, resource tokens may not)
+    return !!(config.url && config.token);
+  }
+
+  /**
+   * Check if we have data (query/write) capabilities
+   */
+  hasDataCapabilities(): boolean {
+    return this.isValidConfig(this.config.influx);
   }
 
   /**
@@ -175,20 +197,28 @@ export class BaseConnectionService {
   /**
    * Get pre-configured HTTP client for InfluxDB API calls
    * For cloud-dedicated, use data host for query/write, management host for admin
-   */
-  getInfluxHttpClient(forManagement = false): HttpClientService {
+   */ getInfluxHttpClient(forManagement = false): HttpClientService {
     const influxConfig = this.config.influx;
     const host =
       (forManagement ? this.getManagementHost() : this.getDataHost()) || "";
+
     let token: string = "";
     if (
-      influxConfig.type === InfluxProductType.CloudDedicated &&
-      influxConfig.account_id
+      forManagement &&
+      influxConfig.type === InfluxProductType.CloudDedicated
     ) {
       token = influxConfig.management_token || "";
     } else {
       token = influxConfig.token || "";
     }
+
     return HttpClientService.createInfluxClient(host, token);
+  }
+
+  /**
+   * Get configuration
+   */
+  getConfig(): McpServerConfig {
+    return this.config;
   }
 }

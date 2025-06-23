@@ -4,10 +4,10 @@
  * Simple axios-based HTTP client for making authenticated requests to InfluxDB API
  */
 
-import axios from "axios";
+import axios, { AxiosInstance } from "axios";
 
 export class HttpClientService {
-  private axiosInstance: any;
+  private axiosInstance: AxiosInstance;
 
   constructor(baseURL?: string, token?: string) {
     this.axiosInstance = axios.create({
@@ -70,7 +70,22 @@ export class HttpClientService {
    * Make a DELETE request
    */
   async delete<T = any>(url: string, config?: any): Promise<T> {
-    const response = await this.axiosInstance.delete(url, config);
+    const deleteConfig = {
+      ...config,
+      headers: {
+        ...config?.headers,
+        Connection: "close",
+      },
+    };
+    const response = await this.axiosInstance.delete(url, deleteConfig);
+    return response.data;
+  }
+
+  /**
+   * Make a PATCH request
+   */
+  async patch<T = any>(url: string, data?: any, config?: any): Promise<T> {
+    const response = await this.axiosInstance.patch(url, data, config);
     return response.data;
   }
 

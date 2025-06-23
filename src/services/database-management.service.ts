@@ -5,6 +5,7 @@
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface DatabaseInfo {
   name: string;
@@ -18,16 +19,162 @@ export class DatabaseManagementService {
   }
 
   /**
-   * List all databases
-   * GET /api/v3/configure/database?format=json
+   * List all databases (single entrypoint for all product types)
+   * For core/enterprise: GET /api/v3/configure/database?format=json
+   * For cloud-dedicated: GET /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases
    */
   async listDatabases(): Promise<DatabaseInfo[]> {
     const connectionInfo = this.baseService.getConnectionInfo();
-
     if (!connectionInfo.isConnected) {
       return [];
     }
 
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.listDatabasesCloudDedicated();
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        return this.listDatabasesCoreEnterprise();
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  /**
+   * Create a new database (single entrypoint for all product types)
+   * For core/enterprise: POST /api/v3/configure/database
+   * For cloud-dedicated: POST /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases
+   */
+  async createDatabase(name: string): Promise<boolean> {
+    if (!name) throw new Error("Database name is required");
+
+    const connectionInfo = this.baseService.getConnectionInfo();
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.createDatabaseCloudDedicated(name);
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        return this.createDatabaseCoreEnterprise(name);
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  /**
+   * Delete a database (single entrypoint for all product types)
+   * For core/enterprise: DELETE /api/v3/configure/database?db={name}
+   * For cloud-dedicated: DELETE /api/v0/accounts/{account_id}/clusters/{cluster_id}/databases/{name}
+   */
+  async deleteDatabase(name: string): Promise<boolean> {
+    if (!name) throw new Error("Database name is required");
+
+    const connectionInfo = this.baseService.getConnectionInfo();
+    switch (connectionInfo.type) {
+      case InfluxProductType.CloudDedicated:
+        return this.deleteDatabaseCloudDedicated(name);
+      case InfluxProductType.Core:
+      case InfluxProductType.Enterprise:
+        return this.deleteDatabaseCoreEnterprise(name);
+      default:
+        throw new Error(
+          `Unsupported InfluxDB product type: ${connectionInfo.type}`,
+        );
+    }
+  }
+
+  // === Cloud Dedicated Methods ===
+
+  /**
+   * List databases for cloud-dedicated
+   */
+  private async listDatabasesCloudDedicated(): Promise<DatabaseInfo[]> {
+    try {
+      const httpClient = this.baseService.getInfluxHttpClient(true);
+      const config = this.baseService.getConfig();
+
+      const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/databases`;
+      const response = await httpClient.get<{ databases?: any[] }>(endpoint);
+
+      if (!response || typeof response !== "object") {
+        throw new Error("Invalid response format from InfluxDB Cloud API");
+      }
+
+      let databases: any[] = [];
+      if (Array.isArray(response.databases)) {
+        databases = response.databases;
+      } else if (Array.isArray(response)) {
+        databases = response as any[];
+      } else {
+        const possibleDatabases =
+          (response as any).data?.databases ||
+          (response as any).result?.databases ||
+          (response as any).databases;
+        if (Array.isArray(possibleDatabases)) {
+          databases = possibleDatabases;
+        } else {
+          throw new Error(
+            `Unexpected response structure: ${JSON.stringify(response)}`,
+          );
+        }
+      }
+
+      return databases.map((item) => {
+        if (typeof item === "string") {
+          return { name: item };
+        } else if (item && typeof item === "object" && item.name) {
+          return { name: item.name };
+        } else {
+          return { name: String(item) };
+        }
+      });
+    } catch (error: any) {
+      this.handleDatabaseError(error, "list databases");
+    }
+  }
+
+  /**
+   * Create database for cloud-dedicated
+   */
+  private async createDatabaseCloudDedicated(name: string): Promise<boolean> {
+    try {
+      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const config = this.baseService.getConfig();
+
+      const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/databases`;
+      await httpClient.post(endpoint, { name });
+      return true;
+    } catch (error: any) {
+      this.handleDatabaseError(error, `create database '${name}'`);
+    }
+  }
+
+  /**
+   * Delete database for cloud-dedicated
+   */
+  private async deleteDatabaseCloudDedicated(name: string): Promise<boolean> {
+    try {
+      const httpClient = this.baseService.getInfluxHttpClient(true); // Use management client
+      const config = this.baseService.getConfig();
+
+      const endpoint = `/api/v0/accounts/${config.influx.account_id}/clusters/${config.influx.cluster_id}/databases/${encodeURIComponent(name)}`;
+
+      await httpClient.delete(endpoint, { timeout: 6500 });
+      return true;
+    } catch (error: any) {
+      this.handleDatabaseError(error, `delete database '${name}'`);
+    }
+  }
+
+  // === Core/Enterprise Methods ===
+
+  /**
+   * List databases for core/enterprise
+   */
+  private async listDatabasesCoreEnterprise(): Promise<DatabaseInfo[]> {
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
       const response = await httpClient.get<{ databases: string[] }>(
@@ -62,7 +209,7 @@ export class DatabaseManagementService {
         );
       }
 
-      return databases.map((item: any) => {
+      return databases.map((item) => {
         if (typeof item === "string") {
           return { name: item };
         } else if (item && typeof item === "object" && item["iox::database"]) {
@@ -74,37 +221,14 @@ export class DatabaseManagementService {
         }
       });
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error("Unauthorized: Check your InfluxDB token permissions");
-      } else if (error.response?.status === 404) {
-        throw new Error(
-          "Database endpoint not found: Check your InfluxDB version and URL",
-        );
-      } else if (error.response?.status === 403) {
-        throw new Error(
-          "Forbidden: Token does not have sufficient permissions",
-        );
-      } else if (error.response?.data) {
-        throw new Error(
-          `InfluxDB API error: ${JSON.stringify(error.response.data)}`,
-        );
-      } else if (error.code === "ECONNREFUSED") {
-        throw new Error(
-          "Connection refused: Check if InfluxDB is running and URL is correct",
-        );
-      } else if (error.code === "ENOTFOUND") {
-        throw new Error("Host not found: Check your InfluxDB URL");
-      }
-
-      throw new Error(`Database list request failed: ${error.message}`);
+      this.handleDatabaseError(error, "list databases");
     }
   }
 
   /**
-   * Create a new database
-   * POST /api/v3/configure/database
+   * Create database for core/enterprise
    */
-  async createDatabase(name: string): Promise<boolean> {
+  private async createDatabaseCoreEnterprise(name: string): Promise<boolean> {
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
       await httpClient.post("/api/v3/configure/database", {
@@ -112,22 +236,14 @@ export class DatabaseManagementService {
       });
       return true;
     } catch (error: any) {
-      if (error.response?.status === 400) {
-        throw new Error(`Bad request: Invalid database name '${name}'`);
-      } else if (error.response?.status === 401) {
-        throw new Error("Unauthorized: Check your InfluxDB token permissions");
-      } else if (error.response?.status === 409) {
-        throw new Error(`Database '${name}' already exists`);
-      }
-      throw new Error(`Failed to create database '${name}': ${error.message}`);
+      this.handleDatabaseError(error, `create database '${name}'`);
     }
   }
 
   /**
-   * Delete a database
-   * DELETE /api/v3/configure/database?db={name}
+   * Delete database for core/enterprise
    */
-  async deleteDatabase(name: string): Promise<boolean> {
+  private async deleteDatabaseCoreEnterprise(name: string): Promise<boolean> {
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
       await httpClient.delete(
@@ -135,12 +251,84 @@ export class DatabaseManagementService {
       );
       return true;
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error("Unauthorized: Check your InfluxDB token permissions");
-      } else if (error.response?.status === 404) {
-        throw new Error(`Database '${name}' not found`);
+      this.handleDatabaseError(error, `delete database '${name}'`);
+    }
+  }
+
+  /**
+   * Common error handling for database operations with comprehensive status code handling
+   */
+  private handleDatabaseError(error: any, operation: string): never {
+    const status = error.response?.status;
+    const originalMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.response?.statusText;
+    const statusText = error.response?.statusText || "";
+
+    const formatError = (userMessage: string): string => {
+      const parts = [`HTTP ${status}`, userMessage];
+      if (originalMessage && originalMessage !== statusText) {
+        parts.push(`Server message: ${originalMessage}`);
       }
-      throw new Error(`Failed to delete database '${name}': ${error.message}`);
+      return parts.join(" - ");
+    };
+
+    switch (status) {
+      case 400:
+        throw new Error(
+          formatError(
+            "Bad Request: Invalid request parameters or malformed request",
+          ),
+        );
+
+      case 401:
+        throw new Error(
+          formatError("Unauthorized: Check your InfluxDB token permissions"),
+        );
+
+      case 403:
+        throw new Error(
+          formatError(
+            "Forbidden: Token does not have sufficient permissions for this operation",
+          ),
+        );
+
+      case 404:
+        throw new Error(
+          formatError(
+            "Not Found: Resource does not exist or endpoint not available",
+          ),
+        );
+
+      case 409:
+        throw new Error(
+          formatError(
+            "Conflict: Resource already exists or operation conflicts with current state",
+          ),
+        );
+
+      case 500:
+        throw new Error(
+          formatError(
+            "Internal Server Error: InfluxDB server encountered an error",
+          ),
+        );
+
+      default:
+        if (error.code === "ECONNREFUSED") {
+          throw new Error(
+            "Connection refused: Check if InfluxDB is running and URL is correct",
+          );
+        } else if (error.code === "ENOTFOUND") {
+          throw new Error("Host not found: Check your InfluxDB URL");
+        } else if (error.response?.data) {
+          const message =
+            originalMessage || JSON.stringify(error.response.data);
+          throw new Error(`HTTP ${status} - InfluxDB API error: ${message}`);
+        } else {
+          throw new Error(`Failed to ${operation}: ${error.message}`);
+        }
     }
   }
 }

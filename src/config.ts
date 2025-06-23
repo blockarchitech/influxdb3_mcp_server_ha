@@ -11,7 +11,7 @@ dotenv.config();
 
 export interface InfluxConfig {
   url?: string;
-  token: string;
+  token?: string;
   management_token?: string;
   type: string;
   account_id?: string;
@@ -36,7 +36,7 @@ export function loadConfig(): McpServerConfig {
       token:
         process.env.INFLUX_DB_TOKEN ||
         process.env.INFLUX_DB_DATABASE_TOKEN ||
-        "",
+        undefined,
       management_token: process.env.INFLUX_DB_MANAGEMENT_TOKEN || undefined,
       type:
         (process.env.INFLUX_DB_PRODUCT_TYPE as InfluxProductType) || "unknown",
