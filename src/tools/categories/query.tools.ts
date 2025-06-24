@@ -12,8 +12,13 @@ export function createQueryTools(
   return [
     {
       name: "execute_query",
-      description:
-        "Execute a SQL query against an InfluxDB database (all versions). Returns results in the specified format (defaults to JSON).",
+      description: `Execute a SQL query against an InfluxDB database (all versions). Returns results in the specified format (defaults to JSON).
+
+Large Dataset Warning: InfluxDB might contain massive time-series data. Always use COUNT(*) first to check size, then LIMIT/OFFSET for large results (>1000 rows).
+
+Cloud Dedicated (v3) Requirements:
+- GROUP BY: Include all group columns in SELECT (e.g., SELECT place, COUNT(*) ... GROUP BY place)
+- Aggregations: Cast and alias COUNT (e.g., CAST(COUNT(*) AS DOUBLE) AS count)`,
       inputSchema: {
         type: "object",
         properties: {

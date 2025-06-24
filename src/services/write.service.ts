@@ -8,12 +8,7 @@
 import { BaseConnectionService } from "./base-connection.service.js";
 import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
-export type Precision =
-  | "auto"
-  | "nanosecond"
-  | "microsecond"
-  | "millisecond"
-  | "second";
+export type Precision = "nanosecond" | "microsecond" | "millisecond" | "second";
 
 export class WriteService {
   private baseService: BaseConnectionService;
@@ -31,10 +26,10 @@ export class WriteService {
     lineProtocolData: string,
     database: string,
     options: {
-      precision?: Precision;
+      precision: Precision;
       acceptPartial?: boolean;
       noSync?: boolean;
-    } = {},
+    },
   ): Promise<void> {
     // Validate we have data capabilities for write operations
     this.baseService.validateDataCapabilities();
@@ -60,16 +55,12 @@ export class WriteService {
     lineProtocolData: string,
     database: string,
     options: {
-      precision?: Precision;
+      precision: Precision;
       acceptPartial?: boolean;
       noSync?: boolean;
     },
   ): Promise<void> {
-    const {
-      precision = "nanosecond",
-      acceptPartial = true,
-      noSync = false,
-    } = options;
+    const { precision, acceptPartial = true, noSync = false } = options;
     try {
       const httpClient = this.baseService.getInfluxHttpClient();
       const params = new URLSearchParams({
@@ -100,7 +91,7 @@ export class WriteService {
     lineProtocolData: string,
     database: string,
     options: {
-      precision?: Precision;
+      precision: Precision;
       acceptPartial?: boolean;
       noSync?: boolean;
     },

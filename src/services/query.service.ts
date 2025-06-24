@@ -115,7 +115,7 @@ export class QueryService {
     try {
       const client = this.baseService.getClient();
       if (!client) throw new Error("InfluxDB client not initialized");
-      const result = client.query(query, database, { type: "sql" });
+      const result = client.queryPoints(query, database, { type: "sql" });
       const rows: any[] = [];
       for await (const row of result) {
         rows.push(row);
