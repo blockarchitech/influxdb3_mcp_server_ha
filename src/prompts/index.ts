@@ -27,7 +27,7 @@ export interface McpPrompt {
  * Create simple MCP prompts for InfluxDB operations
  */
 export function createPrompts(
-  influxService: InfluxDBMasterService,
+  _influxService: InfluxDBMasterService,
 ): McpPrompt[] {
   return [
     {

@@ -12,6 +12,7 @@ import { QueryService } from "./query.service.js";
 import { WriteService } from "./write.service.js";
 import { DatabaseManagementService } from "./database-management.service.js";
 import { TokenManagementService } from "./token-management.service.js";
+import { CloudTokenManagementService } from "./cloud-token-management.service.js";
 import { HelpService } from "./help.service.js";
 import { McpServerConfig } from "../config.js";
 
@@ -21,6 +22,7 @@ export class InfluxDBMasterService {
   private writeService: WriteService;
   private databaseService: DatabaseManagementService;
   private tokenService: TokenManagementService;
+  private cloudTokenService: CloudTokenManagementService;
   private helpService: HelpService;
 
   constructor(config: McpServerConfig) {
@@ -29,6 +31,9 @@ export class InfluxDBMasterService {
     this.writeService = new WriteService(this.baseConnection);
     this.databaseService = new DatabaseManagementService(this.baseConnection);
     this.tokenService = new TokenManagementService(this.baseConnection);
+    this.cloudTokenService = new CloudTokenManagementService(
+      this.baseConnection,
+    );
     this.helpService = new HelpService();
   }
 
@@ -91,13 +96,24 @@ export class InfluxDBMasterService {
     return this.tokenService;
   }
 
+  // ===== Cloud Token Management Service Access =====
+
+  get cloudToken() {
+    return this.cloudTokenService;
+  }
+
+  /**
+   * Get the cloud token management service instance
+   */
+  getCloudTokenManagementService() {
+    return this.cloudTokenService;
+  }
+
   // ===== Help Service Access =====
 
   get help() {
     return this.helpService;
   }
-
-  // ===== Direct Client Access (for advanced operations) =====
 
   /**
    * Get the main client instance (for advanced operations)

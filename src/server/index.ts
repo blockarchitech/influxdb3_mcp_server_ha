@@ -126,7 +126,6 @@ export function createServer(): Server {
   });
 
   server.setRequestHandler(PingRequestSchema, async () => {
-    // Use the ping method from influxService
     const pingResult = await influxService.ping();
     return pingResult;
   });

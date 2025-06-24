@@ -1,12 +1,12 @@
 # InfluxDB MCP Server
 
-Official Model Context Protocol (MCP) server for InfluxDB integration. Provides tools, resources, and prompts for interacting with InfluxDB v3 (Core/Enterprise) via MCP clients.
+Official Model Context Protocol (MCP) server for InfluxDB integration. Provides tools, resources, and prompts for interacting with InfluxDB v3 (Core/Enterprise/Cloud Dedicated) via MCP clients.
 
 ---
 
 ## Prerequisites
 
-- **InfluxDB Instance**: URL and operator token
+- **InfluxDB Instance**: URL and token (Core/Enterprise) or Cluster ID and tokens (Cloud Dedicated)
 - **Node.js**: v18 or newer (for npm/npx usage)
 - **npm**: v9 or newer (for npm/npx usage)
 - **Docker**: (for Docker-based setup)
@@ -15,25 +15,29 @@ Official Model Context Protocol (MCP) server for InfluxDB integration. Provides 
 
 ## Available Tools
 
-| Tool Name                   | Description                                                    |
-| --------------------------- | -------------------------------------------------------------- |
-| `test_connection`           | Test connectivity to your InfluxDB instance                    |
-| `list_databases`            | List all available databases in the instance                   |
-| `get_connection_info`       | Get connection details for the configured InfluxDB instance    |
-| `create_database`           | Create a new database (name restrictions apply)                |
-| `delete_database`           | Delete a database by name (irreversible)                       |
-| `execute_query`             | Run a SQL query against a database (supports multiple formats) |
-| `write_line_protocol`       | Write data using InfluxDB line protocol                        |
-| `get_measurements`          | List all measurements (tables) in a database                   |
-| `get_measurement_schema`    | Get schema (columns/types) for a measurement/table             |
-| `create_admin_token`        | Create a new admin token (full permissions)                    |
-| `list_admin_tokens`         | List all admin tokens (with optional filtering)                |
-| `create_resource_token`     | Create a resource token for specific DBs and permissions       |
-| `list_resource_tokens`      | List all resource tokens (with filtering and ordering)         |
-| `delete_token`              | Delete a token by name                                         |
-| `regenerate_operator_token` | Regenerate the operator token (dangerous/irreversible)         |
-| `get_help`                  | Get help and troubleshooting guidance for InfluxDB operations  |
-| `health_check`              | Check InfluxDB connection and health status                    |
+| Tool Name                     | Description                                                    | Availability         |
+| ----------------------------- | -------------------------------------------------------------- | -------------------- |
+| `get_help`                    | Get help and troubleshooting guidance for InfluxDB operations  | All versions         |
+| `write_line_protocol`         | Write data using InfluxDB line protocol                        | All versions         |
+| `create_database`             | Create a new database (with Cloud Dedicated config options)    | All versions         |
+| `update_database`             | Update database configuration (maxTables, retention, etc.)     | Cloud Dedicated only |
+| `delete_database`             | Delete a database by name (irreversible)                       | All versions         |
+| `execute_query`               | Run a SQL query against a database (supports multiple formats) | All versions         |
+| `get_measurements`            | List all measurements (tables) in a database                   | All versions         |
+| `get_measurement_schema`      | Get schema (columns/types) for a measurement/table             | All versions         |
+| `create_admin_token`          | Create a new admin token (full permissions)                    | Core/Enterprise only |
+| `list_admin_tokens`           | List all admin tokens (with optional filtering)                | Core/Enterprise only |
+| `create_resource_token`       | Create a resource token for specific DBs and permissions       | Core/Enterprise only |
+| `list_resource_tokens`        | List all resource tokens (with filtering and ordering)         | Core/Enterprise only |
+| `delete_token`                | Delete a token by name                                         | Core/Enterprise only |
+| `regenerate_operator_token`   | Regenerate the operator token (dangerous/irreversible)         | Core/Enterprise only |
+| `cloud_list_database_tokens`  | List all database tokens for Cloud-Dedicated cluster           | Cloud Dedicated only |
+| `cloud_get_database_token`    | Get details of a specific database token by ID                 | Cloud Dedicated only |
+| `cloud_create_database_token` | Create a new database token for Cloud-Dedicated cluster        | Cloud Dedicated only |
+| `cloud_update_database_token` | Update an existing database token                              | Cloud Dedicated only |
+| `cloud_delete_database_token` | Delete a database token from Cloud-Dedicated cluster           | Cloud Dedicated only |
+| `list_databases`              | List all available databases in the instance                   | All versions         |
+| `health_check`                | Check InfluxDB connection and health status                    | All versions         |
 
 ---
 
@@ -51,7 +55,9 @@ Official Model Context Protocol (MCP) server for InfluxDB integration. Provides 
 
 ### 1. Environment Variables
 
-You must provide at least:
+#### For Core/Enterprise InfluxDB:
+
+You must provide:
 
 - `INFLUX_DB_INSTANCE_URL` (e.g. `http://localhost:8181/`)
 - `INFLUX_DB_TOKEN`
@@ -64,6 +70,39 @@ INFLUX_DB_INSTANCE_URL=http://localhost:8181/
 INFLUX_DB_TOKEN=your_influxdb_token_here
 INFLUX_DB_PRODUCT_TYPE=core
 ```
+
+#### For Cloud Dedicated InfluxDB:
+
+You must provide `INFLUX_DB_PRODUCT_TYPE=cloud-dedicated` and `INFLUX_DB_CLUSTER_ID`, plus one of these token combinations:
+
+**Option 1: Database Token Only** (Query/Write operations only):
+
+```env
+INFLUX_DB_PRODUCT_TYPE=cloud-dedicated
+INFLUX_DB_CLUSTER_ID=your_cluster_id_here
+INFLUX_DB_TOKEN=your_database_token_here
+```
+
+**Option 2: Management Token Only** (Database management only):
+
+```env
+INFLUX_DB_PRODUCT_TYPE=cloud-dedicated
+INFLUX_DB_CLUSTER_ID=your_cluster_id_here
+INFLUX_DB_ACCOUNT_ID=your_account_id_here
+INFLUX_DB_MANAGEMENT_TOKEN=your_management_token_here
+```
+
+**Option 3: Both Tokens** (Full functionality):
+
+```env
+INFLUX_DB_PRODUCT_TYPE=cloud-dedicated
+INFLUX_DB_CLUSTER_ID=your_cluster_id_here
+INFLUX_DB_ACCOUNT_ID=your_account_id_here
+INFLUX_DB_TOKEN=your_database_token_here
+INFLUX_DB_MANAGEMENT_TOKEN=your_management_token_here
+```
+
+See `env.cloud-dedicated.example` for detailed configuration options and comments.
 
 ---
 
@@ -192,7 +231,12 @@ Use `host.docker.internal` as the InfluxDB URL so the MCP server container can r
 ## Example Usage
 
 - Use your MCP client to call tools, resources, or prompts as described above.
-- See the `example-*.mcp.json` files for ready-to-use configuration templates for each integration method.
+- See the `example-*.mcp.json` files for ready-to-use configuration templates:
+  - `example-local.mcp.json` - Local development setup
+  - `example-npx.mcp.json` - NPX-based setup
+  - `example-docker.mcp.json` - Docker-based setup
+  - `example-cloud-dedicated.mcp.json` - Cloud Dedicated with all variables
+- See the `env.example` and `env.cloud-dedicated.example` files for environment variable templates.
 
 ---
 

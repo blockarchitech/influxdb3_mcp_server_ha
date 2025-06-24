@@ -5,6 +5,7 @@
  */
 
 import { BaseConnectionService } from "./base-connection.service.js";
+import { InfluxProductType } from "../helpers/enums/influx-product-types.enum.js";
 
 export interface TokenInfo {
   id: string;
@@ -48,6 +49,12 @@ export class TokenManagementService {
   async createAdminToken(
     token_name?: string,
   ): Promise<{ token: string; id: string }> {
+    this.baseService.validateOperationSupport("create_admin_token", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       const name =
         token_name ||
@@ -88,6 +95,12 @@ export class TokenManagementService {
       direction: "ASC" | "DESC";
     };
   }): Promise<any> {
+    this.baseService.validateOperationSupport("list_admin_tokens", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       let query =
         "SELECT * FROM system.tokens WHERE permissions LIKE '%*:*:*%'";
@@ -123,7 +136,7 @@ export class TokenManagementService {
       return response;
     } catch (error: any) {
       const errorMessage = error.response?.data;
-      const statusCode = error.response?.status;
+      const _statusCode = error.response?.status;
       throw new Error(
         `Failed to list admin tokens: ${errorMessage || error.message}`,
       );
@@ -141,6 +154,12 @@ export class TokenManagementService {
       direction: "ASC" | "DESC";
     };
   }): Promise<any> {
+    this.baseService.validateOperationSupport("list_resource_tokens", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       let query =
         "SELECT * FROM system.tokens WHERE permissions NOT LIKE '%*:*:*%'";
@@ -192,6 +211,12 @@ export class TokenManagementService {
    * Regenerate the operator token
    */
   async regenerateOperatorToken(): Promise<{ token: string; id: string }> {
+    this.baseService.validateOperationSupport("regenerate_operator_token", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       const response = await this.httpClient.post(
         "/api/v3/configure/token/admin/regenerate",
@@ -224,6 +249,12 @@ export class TokenManagementService {
     permissions: TokenPermission[],
     expiry_secs?: number,
   ): Promise<{ token: string; id: string }> {
+    this.baseService.validateOperationSupport("create_resource_token", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       const requestBody: CreateResourceTokenRequest = {
         token_name: description,
@@ -262,6 +293,12 @@ export class TokenManagementService {
    */
   async deleteToken(token_name: string): Promise<boolean> {
     if (!token_name) throw new Error("token_name is required");
+    this.baseService.validateOperationSupport("delete_token", [
+      InfluxProductType.Core,
+      InfluxProductType.Enterprise,
+    ]);
+    this.baseService.validateManagementCapabilities();
+
     try {
       const response = await this.httpClient.delete("/api/v3/configure/token", {
         params: { token_name },

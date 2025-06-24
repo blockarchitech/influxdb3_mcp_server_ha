@@ -5,13 +5,17 @@
  */
 
 import dotenv from "dotenv";
+import { InfluxProductType } from "./helpers/enums/influx-product-types.enum.js";
 
 dotenv.config();
 
 export interface InfluxConfig {
-  url: string;
-  token: string;
+  url?: string;
+  token?: string;
+  management_token?: string;
   type: string;
+  account_id?: string;
+  cluster_id?: string;
 }
 
 export interface McpServerConfig {
@@ -28,9 +32,16 @@ export interface McpServerConfig {
 export function loadConfig(): McpServerConfig {
   return {
     influx: {
-      url: process.env.INFLUX_DB_INSTANCE_URL || "http://localhost:8081/",
-      token: process.env.INFLUX_DB_TOKEN || "",
-      type: process.env.INFLUX_DB_PRODUCT_TYPE || "unknown",
+      url: process.env.INFLUX_DB_INSTANCE_URL,
+      token:
+        process.env.INFLUX_DB_TOKEN ||
+        process.env.INFLUX_DB_DATABASE_TOKEN ||
+        undefined,
+      management_token: process.env.INFLUX_DB_MANAGEMENT_TOKEN || undefined,
+      type:
+        (process.env.INFLUX_DB_PRODUCT_TYPE as InfluxProductType) || "unknown",
+      account_id: process.env.INFLUX_DB_ACCOUNT_ID,
+      cluster_id: process.env.INFLUX_DB_CLUSTER_ID,
     },
     server: {
       name: "influxdb-mcp-server",
@@ -45,19 +56,44 @@ export function loadConfig(): McpServerConfig {
 export function validateConfig(config: McpServerConfig): void {
   const errors: string[] = [];
 
-  if (!config.influx.url) {
-    errors.push("INFLUX_DB_INSTANCE_URL (or INFLUX_URL) is required");
-  }
-  if (!config.influx.token) {
-    errors.push("INFLUX_DB_TOKEN (or INFLUX_TOKEN) is required");
-  }
   if (
     !config.influx.type ||
-    !["enterprise", "core", "unknown"].includes(config.influx.type)
+    ![
+      InfluxProductType.Enterprise,
+      InfluxProductType.Core,
+      InfluxProductType.CloudDedicated,
+    ].includes(config.influx.type as InfluxProductType)
   ) {
     errors.push(
-      "INFLUX_DB_PRODUCT_TYPE is required and must be one of: enterprise, core",
+      `INFLUX_DB_PRODUCT_TYPE is required and must be one of: ${InfluxProductType.Enterprise}, ${InfluxProductType.Core}, ${InfluxProductType.CloudDedicated}`,
     );
+  }
+
+  if (config.influx.type === InfluxProductType.CloudDedicated) {
+    if (!config.influx.cluster_id) {
+      errors.push("INFLUX_DB_CLUSTER_ID is required for cloud-dedicated");
+    }
+    const hasQueryWrite = config.influx.cluster_id && config.influx.token;
+    const hasManagement =
+      config.influx.cluster_id &&
+      config.influx.account_id &&
+      config.influx.management_token;
+    if (!hasQueryWrite && !hasManagement) {
+      errors.push(
+        "For cloud-dedicated, provide at least either: (CLUSTER_ID + DB TOKEN) for query/write, or (CLUSTER_ID + ACCOUNT_ID + MANAGEMENT TOKEN) for management API.",
+      );
+    }
+  } else if (
+    [InfluxProductType.Enterprise, InfluxProductType.Core].includes(
+      config.influx.type as InfluxProductType,
+    )
+  ) {
+    if (!config.influx.url) {
+      errors.push("INFLUX_DB_INSTANCE_URL is required for core/enterprise");
+    }
+    if (!config.influx.token) {
+      errors.push("INFLUX_DB_TOKEN is required for core/enterprise");
+    }
   }
 
   if (errors.length > 0) {
