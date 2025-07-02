@@ -6,7 +6,7 @@ Official Model Context Protocol (MCP) server for InfluxDB 3 integration. Provide
 
 ## Prerequisites
 
-- **InfluxDB Instance**: URL and token (Core/Enterprise) or Cluster ID and tokens (Cloud Dedicated)
+- **InfluxDB 3 Instance**: URL and token (Core/Enterprise) or Cluster ID and tokens (Cloud Dedicated)
 - **Node.js**: v18 or newer (for npm/npx usage)
 - **npm**: v9 or newer (for npm/npx usage)
 - **Docker**: (for Docker-based setup)
