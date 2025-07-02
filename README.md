@@ -1,6 +1,6 @@
 # InfluxDB MCP Server
 
-Official Model Context Protocol (MCP) server for InfluxDB integration. Provides tools, resources, and prompts for interacting with InfluxDB v3 (Core/Enterprise/Cloud Dedicated) via MCP clients.
+Official Model Context Protocol (MCP) server for InfluxDB 3 integration. Provides tools, resources, and prompts for interacting with InfluxDB v3 (Core/Enterprise/Cloud Dedicated) via MCP clients.
 
 ---
 
