@@ -13,3 +13,22 @@ options:
   instance_url: "http://a0d7b954-influxdb:8086"
   token: null
   product_type: "core"
+schema:
+  instance_url:
+    type: string
+    title: "InfluxDB 3 URL"
+    description: "The URL of your InfluxDB 3 instance"
+    default: "http://a0d7b954-influxdb:8086"
+  token:
+    type: string
+    title: "InfluxDB 3 Token"
+    description: "The token to access your InfluxDB 3 instance"
+    default: null
+  product_type:
+    type: string
+    title: "Product Type"
+    description: "The product type of your InfluxDB 3 instance (core or enterprise)"
+    default: "core"
+    enum:
+      - core
+      - enterprise
