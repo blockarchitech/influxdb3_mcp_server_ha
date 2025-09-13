@@ -1,0 +1,11 @@
+name: "InfluxDB 3 MCP Server"
+description: " MCP Server for InfluxDB 3"
+version: "1.0.0"
+slug: "influxdb3-mcp-server"
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
