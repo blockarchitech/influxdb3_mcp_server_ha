@@ -9,3 +9,7 @@ arch:
   - armhf
   - armv7
   - i386
+options:
+  instance_url: "http://a0d7b954-influxdb:8086"
+  token: null
+  product_type: "core"

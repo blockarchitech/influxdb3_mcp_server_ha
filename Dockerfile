@@ -19,4 +19,7 @@ RUN addgroup -g 1001 -S nodejs && \
 RUN chown -R mcp:nodejs /app
 USER mcp
 
-CMD ["node", "build/index.js"]
+COPY run.sh .
+RUN chmod +x run.sh
+
+CMD ["./run.sh"]
