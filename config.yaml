@@ -1,6 +1,6 @@
 name: "InfluxDB 3 MCP Server"
 description: " MCP Server for InfluxDB 3"
-version: "1.0.2"
+version: "1.0.3"
 slug: "influxdb3-mcp-server"
 init: false
 arch:
@@ -14,21 +14,6 @@ options:
   token: null
   product_type: "core"
 schema:
-  instance_url:
-    type: string
-    title: "InfluxDB 3 URL"
-    description: "The URL of your InfluxDB 3 instance"
-    default: "http://a0d7b954-influxdb:8086"
-  token:
-    type: string
-    title: "InfluxDB 3 Token"
-    description: "The token to access your InfluxDB 3 instance"
-    default: null
-  product_type:
-    type: string
-    title: "Product Type"
-    description: "The product type of your InfluxDB 3 instance (core or enterprise)"
-    default: "core"
-    enum:
-      - core
-      - enterprise
+  instance_url: "str"
+  token: "str"
+  product_type: "list(core|enterprise)"
