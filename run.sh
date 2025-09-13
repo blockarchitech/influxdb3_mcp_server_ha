@@ -11,4 +11,4 @@ if [ -z "$INFLUX_DB_INSTANCE_URL" ] || [ -z "$INFLUX_DB_TOKEN" ] || [ -z "$INFLU
     exit 1
 fi
 
-node build/index.js
+mcp-proxy --port 8080 node build/index.js &
