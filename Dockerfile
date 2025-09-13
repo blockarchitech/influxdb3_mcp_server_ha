@@ -11,6 +11,10 @@ COPY tsconfig.json ./
 RUN npm run build
 RUN chmod +x ./build/index.js
 
+# Copy script
+COPY run.sh .
+RUN chmod +x run.sh
+
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S mcp -u 1001 -G nodejs
@@ -18,8 +22,5 @@ RUN addgroup -g 1001 -S nodejs && \
 # Change ownership and switch to non-root user
 RUN chown -R mcp:nodejs /app
 USER mcp
-
-COPY run.sh .
-RUN chmod +x run.sh
 
 CMD ["./run.sh"]

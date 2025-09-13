@@ -1,6 +1,6 @@
 name: "InfluxDB 3 MCP Server"
 description: " MCP Server for InfluxDB 3"
-version: "1.0.0"
+version: "1.0.1"
 slug: "influxdb3-mcp-server"
 init: false
 arch:
